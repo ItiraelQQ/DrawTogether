@@ -2,14 +2,30 @@
 @model IndexModel
 
 <h2>Онлайн рисование вдвоем</h2>
-<button onclick="findPartner()">🔍 Найти напарника</button>
-<p id="status">Ожидание...</p>
+
+<div id="toolbar">
+    <button onclick="findPartner()">🔍 Найти напарника</button>
+    <p id="status">Ожидание...</p>
+
+    <label for="colorPicker">Цвет: </label>
+    <input type="color" id="colorPicker" value="#000000">
+
+    <label for="toolSelect">Инструмент: </label>
+    <select id="toolSelect">
+        <option value="pencil">Карандаш</option>
+        <option value="brush">Кисть</option>
+        <option value="eraser">Ластик</option>
+    </select>
+
+    <label for="brushSize">Размер кисти: </label>
+    <input type="range" id="brushSize" min="1" max="10" value="2">
+</div>
 
 <canvas id="drawCanvas" width="800" height="500" style="border: 1px solid black;"></canvas>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
 <script>
-    const userId = '@Model.UserId';
+    const userId = '@Model.UserId'; 
     console.log("User ID:", userId);
 
     const canvas = document.getElementById('drawCanvas');
@@ -18,16 +34,34 @@
     let prevX = 0, prevY = 0;
     let currentRoom = null;
 
+    let currentColor = "black";
+    let currentTool = "pencil"; 
+    let brushSize = 2; 
+
+    document.getElementById('colorPicker').addEventListener('input', (e) => {
+        currentColor = e.target.value;
+    });
+
+    document.getElementById('toolSelect').addEventListener('change', (e) => {
+        currentTool = e.target.value;
+    });
+
+    document.getElementById('brushSize').addEventListener('input', (e) => {
+        brushSize = parseInt(e.target.value, 10); 
+    });
+
     const connection = new signalR.HubConnectionBuilder()
         .withUrl("/drawHub")
         .build();
 
     connection.start().then(() => {
         console.log("✅ Connected to SignalR");
+    }).catch(err => {
+        console.error("Error while starting SignalR connection: ", err);
     });
 
-    connection.on("ReceiveDraw", (startX, startY, endX, endY) => {
-        drawLine(startX, startY, endX, endY, "red");
+    connection.on("ReceiveDraw", (startX, startY, endX, endY, color, tool, size) => {
+        drawLine(startX, startY, endX, endY, color, tool, size);
     });
 
     function findPartner() {
@@ -58,19 +92,35 @@
         if (!drawing || !currentRoom) return;
 
         const [currX, currY] = [e.offsetX, e.offsetY];
-        drawLine(prevX, prevY, currX, currY, "black");
+        if (isNaN(prevX) || isNaN(prevY) || isNaN(currX) || isNaN(currY) || brushSize <= 0) {
+            console.error("Invalid drawing parameters.");
+            return;
+        }
 
-        connection.invoke("SendDraw", currentRoom, prevX, prevY, currX, currY);
+        drawLine(prevX, prevY, currX, currY, currentColor, currentTool, brushSize);
+
+        connection.invoke("SendDraw", currentRoom, prevX, prevY, currX, currY, currentColor, currentTool, brushSize)
+            .catch(error => {
+                console.error("Error while sending draw data: ", error);
+                alert("Не удалось отправить данные о рисовании.");
+            });
 
         [prevX, prevY] = [currX, currY];
     });
 
-    function drawLine(x1, y1, x2, y2, color) {
+    function drawLine(x1, y1, x2, y2, color, tool, size) {
         ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = size;
+
+        if (tool === 'eraser') {
+            ctx.globalCompositeOperation = 'destination-out'; 
+            ctx.globalCompositeOperation = 'source-over'; 
+        }
+
         ctx.beginPath();
         ctx.moveTo(x1, y1);
         ctx.lineTo(x2, y2);
         ctx.stroke();
     }
 </script>
+
