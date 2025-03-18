@@ -1,0 +1,55 @@
+﻿@page
+@model IndexModel
+
+<h2>Онлайн рисование вдвоем</h2>
+
+<canvas id="drawCanvas" width="800" height="500" style="border: 1px solid black;"></canvas>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+<script>
+    const canvas = document.getElementById('drawCanvas');
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+    let prevX = 0, prevY = 0;
+
+    const connection = new signalR.HubConnectionBuilder()
+        .withUrl("/drawHub")
+        .build();
+
+    connection.start().then(() => console.log("Connected to SignalR"));
+
+    canvas.addEventListener("mousedown", (e) => {
+        drawing = true;
+        [prevX, prevY] = [e.offsetX, e.offsetY];
+    });
+
+    canvas.addEventListener("mouseup", () => {
+        drawing = false;
+    });
+
+    canvas.addEventListener("mousemove", (e) => {
+        if (!drawing) return;
+
+        const [currX, currY] = [e.offsetX, e.offsetY];
+        drawLine(prevX, prevY, currX, currY, "black");
+
+        // Отправка другим пользователям
+        connection.invoke("SendDraw", prevX, prevY, currX, currY);
+
+        [prevX, prevY] = [currX, currY];
+    });
+
+    // Получение линии от других
+    connection.on("ReceiveDraw", (startX, startY, endX, endY) => {
+        drawLine(startX, startY, endX, endY, "red");
+    });
+
+    function drawLine(x1, y1, x2, y2, color) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+    }
+</script>
