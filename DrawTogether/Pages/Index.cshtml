@@ -2,21 +2,48 @@
 @model IndexModel
 
 <h2>Онлайн рисование вдвоем</h2>
+<button onclick="findPartner()">🔍 Найти напарника</button>
+<p id="status">Ожидание...</p>
 
 <canvas id="drawCanvas" width="800" height="500" style="border: 1px solid black;"></canvas>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
 <script>
+    const userId = '@Model.UserId';
+    console.log("User ID:", userId);
+
     const canvas = document.getElementById('drawCanvas');
     const ctx = canvas.getContext('2d');
     let drawing = false;
     let prevX = 0, prevY = 0;
+    let currentRoom = null;
 
     const connection = new signalR.HubConnectionBuilder()
         .withUrl("/drawHub")
         .build();
 
-    connection.start().then(() => console.log("Connected to SignalR"));
+    connection.start().then(() => {
+        console.log("✅ Connected to SignalR");
+    });
+
+    connection.on("ReceiveDraw", (startX, startY, endX, endY) => {
+        drawLine(startX, startY, endX, endY, "red");
+    });
+
+    function findPartner() {
+        document.getElementById("status").innerText = "🔍 Идёт поиск...";
+        connection.invoke("StartMatchmaking", userId);
+    }
+
+    connection.on("WaitingForPartner", () => {
+        document.getElementById("status").innerText = "⌛ Ожидание второго пользователя...";
+    });
+
+    connection.on("MatchFound", (roomId) => {
+        currentRoom = roomId;
+        document.getElementById("status").innerText = "✅ Партнёр найден! Комната: " + roomId;
+        connection.invoke("JoinRoom", roomId);
+    });
 
     canvas.addEventListener("mousedown", (e) => {
         drawing = true;
@@ -28,20 +55,14 @@
     });
 
     canvas.addEventListener("mousemove", (e) => {
-        if (!drawing) return;
+        if (!drawing || !currentRoom) return;
 
         const [currX, currY] = [e.offsetX, e.offsetY];
         drawLine(prevX, prevY, currX, currY, "black");
 
-        // Отправка другим пользователям
-        connection.invoke("SendDraw", prevX, prevY, currX, currY);
+        connection.invoke("SendDraw", currentRoom, prevX, prevY, currX, currY);
 
         [prevX, prevY] = [currX, currY];
-    });
-
-    // Получение линии от других
-    connection.on("ReceiveDraw", (startX, startY, endX, endY) => {
-        drawLine(startX, startY, endX, endY, "red");
     });
 
     function drawLine(x1, y1, x2, y2, color) {
